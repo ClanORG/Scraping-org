@@ -63,93 +63,142 @@ app.get("/api/proxy", async (req, res) => {
 });
 
 /**
- * Manipulador de Listas M3U8: Limpieza de Ads y Rewriting de URLs
+ * DESOFUSCADOR: Unpacker de Dean Edwards (P.A.C.K.E.R)
+ * Reconstruye el código original para extraer variables ocultas (file: "...", etc)
+ */
+function deobfuscate(p: string, a: number, c: number, k: string[], e: any, d: any): string {
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
+    }
+  }
+  return p;
+}
+
+function resolvePacked(html: string): string {
+  const match = html.match(/eval\(function\(p,a,c,k,e,d\)\{.*?\}\((.*)\)\)/);
+  if (!match) return html;
+
+  try {
+    const args = match[1].split(",");
+    const p = args[0].replace(/^["']|["']$/g, "");
+    const a = parseInt(args[1]);
+    const c = parseInt(args[2]);
+    const k = args[3].split("|");
+    // Ejecutamos la lógica de reconstrucción
+    return deobfuscate(p, a, c, k, 0, {});
+  } catch (err) {
+    return html;
+  }
+}
+
+/**
+ * ELECCIÓN DE CALIDAD: Selecciona el mejor stream <= 6 Mbps (6000000 bps)
+ */
+function selectBestQuality(m3u8: string, baseUrl: string): string {
+  if (!m3u8.includes("#EXT-X-STREAM-INF")) return m3u8;
+
+  const lines = m3u8.split("\n");
+  let bestBandwidth = 0;
+  let bestUrl = "";
+  const LIMIT = 6000000;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith("#EXT-X-STREAM-INF")) {
+      const bwMatch = lines[i].match(/BANDWIDTH=(\d+)/);
+      if (bwMatch) {
+        const bw = parseInt(bwMatch[1]);
+        if (bw <= LIMIT && bw > bestBandwidth) {
+          bestBandwidth = bw;
+          bestUrl = lines[i + 1].trim();
+        }
+      }
+    }
+  }
+
+  if (bestUrl) {
+    if (!bestUrl.startsWith("http")) {
+      bestUrl = new URL(bestUrl, baseUrl).href;
+    }
+    return bestUrl;
+  }
+  return "";
+}
+
+/**
+ * FILTRADO DE ANUNCIOS: Limpieza profunda de segmentos
+ */
+function filterAds(content: string): string {
+  const lines = content.split("\n");
+  const cleaned = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    const l = line.trim();
+    // Detección por marcadores y palabras clave en URLs
+    if (l.includes("CUE-OUT") || l.includes("DISCONTINUITY") || l.includes("-ad-") || l.includes("/ads/")) {
+      skipping = true;
+      continue;
+    }
+    if (l.includes("CUE-IN")) {
+      skipping = false;
+      continue;
+    }
+    if (!skipping) cleaned.push(line);
+  }
+  return cleaned.join("\n");
+}
+
+/**
+ * API ENDPOINT: Lógica MovieProxy 5-Pasos
  */
 app.get("/api/m3u8", async (req, res) => {
   const { url, referer } = req.query;
-  if (!url) return res.status(400).send("URL is required");
+  if (!url) return res.status(400).send("URL required");
 
   try {
-    let targetUrl = url as string;
+    // PASO 1: Descarga la página del proveedor
+    const page = await axios.get(url as string, { headers: DEFAULT_HEADERS });
+    let html = page.data;
+
+    // PASO 2: Desofusca scripts escondidos
+    html = resolvePacked(html);
     
-    // RESOLVER: Si no termina en .m3u8, intentamos buscarlo dentro del HTML
-    if (!targetUrl.includes(".m3u8")) {
-      console.log("Detectado Embed URL, resolviendo fuente...");
-      const pageResponse = await axios.get(targetUrl, {
-        headers: { ...DEFAULT_HEADERS, ...(referer ? { Referer: referer as string } : {}) },
-      });
-      
-      const html = pageResponse.data;
-      // Regex para buscar archivos m3u8 en scripts (común en JWPlayer y similares)
-      const m3u8Match = html.match(/["'](http[^"']+\.m3u8[^"']*)["']/i) || 
-                        html.match(/file\s*:\s*["']([^"']+)["']/i);
-      
-      if (m3u8Match) {
-        targetUrl = m3u8Match[1];
-        console.log("Fuente resuelta:", targetUrl);
-      } else {
-        return res.status(404).send("No se encontró un flujo M3U8 válido en esta página.");
-      }
+    // Extraer m3u8 si es un embed
+    let m3u8Url = url as string;
+    if (!m3u8Url.endsWith(".m3u8")) {
+      const m3u8Match = html.match(/["'](http[^"']+\.m3u8[^"']*)["']/i);
+      if (m3u8Match) m3u8Url = m3u8Match[1];
     }
 
-    const response = await axios.get(targetUrl, {
-      headers: { ...DEFAULT_HEADERS, ...(referer ? { Referer: referer as string } : {}) },
-    });
+    // Obtener Master Playlist
+    const master = await axios.get(m3u8Url, { headers: DEFAULT_HEADERS });
+    
+    // PASO 3: Elige la mejor calidad <= 6 Mbps
+    let finalUrl = selectBestQuality(master.data, m3u8Url);
+    if (!finalUrl) finalUrl = m3u8Url;
 
-    let content = response.data;
-    const lines = content.split("\n");
-    const newLines = [];
-    const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
+    // Obtener Playlist de Calidad
+    const qualityPlaylist = await axios.get(finalUrl, { headers: DEFAULT_HEADERS });
+    
+    // PASO 4: Quita ads del playlist
+    const cleanPlaylist = filterAds(qualityPlaylist.data);
 
-    let isAdSegment = false;
-
-    for (let line of lines) {
-      line = line.trim();
-      
-      // 1. Filtrado de Publicidad por marcadores estándar
-      if (line.includes("#EXT-X-DISCONTINUITY") || 
-          line.includes("#EXT-X-DATERANGE") || 
-          line.includes("AD-BREAK") || 
-          line.includes("cue-out")) {
-        isAdSegment = true;
-        continue; 
-      }
-      
-      if (line.includes("cue-in")) {
-        isAdSegment = false;
-        continue;
-      }
-
-      if (isAdSegment && line.startsWith("#EXTINF")) {
-        // Omitir info de segmento de anuncio
-        continue;
-      }
-
-      if (isAdSegment && !line.startsWith("#")) {
-        // Omitir URL de chunk de anuncio
-        continue;
-      }
-
-      // 2. Rewriting de URLs dinámico
+    // PASO 5: Proxy para servir el flujo "en vivo" dinámico
+    // Reescribimos fragmentos para que pasen por /api/proxy
+    const baseUrl = finalUrl.substring(0, finalUrl.lastIndexOf("/") + 1);
+    const rewritten = cleanPlaylist.split("\n").map(line => {
       if (line && !line.startsWith("#")) {
-        let absoluteUrl = line;
-        if (!line.startsWith("http")) {
-          absoluteUrl = new URL(line, baseUrl).href;
-        }
-
-        // Ruteamos a través de nuestro proxy para mayor limpieza
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(absoluteUrl)}${referer ? `&referer=${encodeURIComponent(referer as string)}` : ""}`;
-        newLines.push(proxyUrl);
-      } else {
-        newLines.push(line);
+        const abs = line.startsWith("http") ? line : new URL(line, baseUrl).href;
+        return `/api/proxy?url=${encodeURIComponent(abs)}${referer ? `&referer=${encodeURIComponent(referer as string)}` : ""}`;
       }
-    }
+      return line;
+    }).join("\n");
 
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-    res.send(newLines.join("\n"));
-  } catch (error) {
-    console.error("M3U8 Error:", (error as Error).message);
-    res.status(500).send("Error processing M3U8");
+    res.send(rewritten);
+  } catch (err) {
+    res.status(500).send((err as Error).message);
   }
 });
 
