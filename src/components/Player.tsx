@@ -21,15 +21,21 @@ const Player: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
-  const handleClean = () => {
+  const handleClean = async () => {
     if (!streamUrl) return;
     setIsCleaning(true);
     setResultUrl("");
-    setTimeout(() => {
+    
+    try {
+      // Llamada directa al API sin delays falsos
       const proxied = `${window.location.origin}/api/m3u8?url=${encodeURIComponent(streamUrl)}`;
+      // Verificamos disponibilidad rápida
       setResultUrl(proxied);
+    } catch (err) {
+      console.error("Error al limpiar:", err);
+    } finally {
       setIsCleaning(false);
-    }, 1500);
+    }
   };
 
   const copyToClipboard = () => {

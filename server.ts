@@ -11,7 +11,14 @@ const DEFAULT_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
   "Referer": "https://google.com",
   "Origin": "https://google.com",
+  "Accept": "*/*",
+  "Connection": "keep-alive"
 };
+
+const axiosInstance = axios.create({
+  timeout: 15000,
+  headers: DEFAULT_HEADERS
+});
 
 /**
  * Lógica de Desofuscación (Unpacker de Dean Edwards)
@@ -33,32 +40,30 @@ function unpack(code: string): string {
 }
 
 /**
- * Proxy Multimedia: Intercepta y limpia fragmentos de video
+ * Proxy Multimedia: Optimizado para streaming de fragmentos
  */
 app.get("/api/proxy", async (req, res) => {
   const { url, referer } = req.query;
-  if (!url) return res.status(400).send("URL is required");
+  if (!url) return res.status(400).send("URL required");
 
   try {
-    const response = await axios.get(url as string, {
+    const response = await axiosInstance.get(url as string, {
       headers: {
         ...DEFAULT_HEADERS,
         ...(referer ? { Referer: referer as string } : {}),
       },
       responseType: "stream",
-      timeout: 10000,
     });
 
-    // Reenviar cabeceras críticas de contenido
     res.setHeader("Content-Type", response.headers["content-type"] || "video/MP2T");
+    res.setHeader("Cache-Control", "public, max-age=3600");
     if (response.headers["content-length"]) {
       res.setHeader("Content-Length", response.headers["content-length"]);
     }
 
     response.data.pipe(res);
   } catch (error) {
-    console.error("Proxy error:", (error as Error).message);
-    res.status(500).send("Error proxying resource");
+    res.status(500).send("Proxy error");
   }
 });
 
@@ -162,7 +167,7 @@ app.get("/api/m3u8", async (req, res) => {
 
     // PASO 1 & 2: Descarga y Desofuscación
     if (!currentUrl.includes(".m3u8")) {
-      const page = await axios.get(currentUrl, { headers: DEFAULT_HEADERS });
+      const page = await axiosInstance.get(currentUrl, { headers: DEFAULT_HEADERS });
       html = resolvePacked(page.data);
       
       // Búsqueda agresiva de m3u8
@@ -176,7 +181,7 @@ app.get("/api/m3u8", async (req, res) => {
     }
 
     // Obtener Master Playlist
-    const masterResponse = await axios.get(currentUrl, { headers: DEFAULT_HEADERS });
+    const masterResponse = await axiosInstance.get(currentUrl, { headers: DEFAULT_HEADERS });
     const masterData = masterResponse.data;
 
     // PASO 3: Selección de Calidad
@@ -186,7 +191,7 @@ app.get("/api/m3u8", async (req, res) => {
     }
 
     // Obtener Playlist Final
-    const qualityResponse = await axios.get(qualityUrl, { headers: DEFAULT_HEADERS });
+    const qualityResponse = await axiosInstance.get(qualityUrl, { headers: DEFAULT_HEADERS });
     let qualityData = qualityResponse.data;
 
     if (typeof qualityData !== "string") {
