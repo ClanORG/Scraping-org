@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { Play, Copy, ExternalLink, MessageSquare, Youtube, Globe, Monitor, ShoppingBag, Video, PlayCircle } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import Hls from "hls.js";
+import { Play, Copy, ExternalLink, MessageSquare, Youtube, Globe, Monitor, ShoppingBag, Video, PlayCircle, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 const COMPATIBLE_LINKS = [
@@ -16,25 +17,73 @@ const Player: React.FC = () => {
   const [streamUrl, setStreamUrl] = useState("");
   const [isCleaning, setIsCleaning] = useState(false);
   const [resultUrl, setResultUrl] = useState("");
+  const [showPlayer, setShowPlayer] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   const handleClean = () => {
     if (!streamUrl) return;
     setIsCleaning(true);
-    // Simulación de delay de limpieza como en la imagen
+    setResultUrl("");
     setTimeout(() => {
       const proxied = `${window.location.origin}/api/m3u8?url=${encodeURIComponent(streamUrl)}`;
       setResultUrl(proxied);
       setIsCleaning(false);
-    }, 2000);
+    }, 1500);
   };
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(resultUrl);
   };
 
+  const startPlayback = () => {
+    setShowPlayer(true);
+  };
+
+  useEffect(() => {
+    if (showPlayer && videoRef.current && resultUrl) {
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(resultUrl);
+        hls.attachMedia(videoRef.current);
+        hlsRef.current = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          videoRef.current?.play();
+        });
+      } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
+        videoRef.current.src = resultUrl;
+      }
+    }
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+      }
+    };
+  }, [showPlayer, resultUrl]);
+
   return (
     <div className="flex flex-col gap-8 max-w-xl mx-auto py-4">
-      {/* Ventana Principal MovieProxy */}
+      {/* Reproductor Modal */}
+      <AnimatePresence>
+        {showPlayer && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4 lg:p-12"
+          >
+            <button 
+              onClick={() => setShowPlayer(false)}
+              className="absolute top-6 right-6 text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="w-full max-w-5xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+              <video ref={videoRef} controls className="w-full h-full" autoPlay />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="bg-[#13171f] rounded-xl border border-slate-800 shadow-2xl overflow-hidden">
         {/* Barra Superior macOS Style */}
         <div className="bg-[#1a1f29] px-4 py-3 flex items-center gap-2 border-b border-slate-800">
@@ -107,7 +156,10 @@ const Player: React.FC = () => {
                       {resultUrl}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button className="flex-1 bg-[#00f2a9] text-[#0b0e14] text-[10px] font-bold py-2.5 rounded uppercase tracking-wider hover:bg-[#00d998] transition-colors">
+                      <button 
+                        onClick={startPlayback}
+                        className="flex-1 bg-[#00f2a9] text-[#0b0e14] text-[10px] font-bold py-2.5 rounded uppercase tracking-wider hover:bg-[#00d998] transition-colors"
+                      >
                         Reproducir
                       </button>
                       <button 

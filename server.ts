@@ -157,36 +157,47 @@ app.get("/api/m3u8", async (req, res) => {
   if (!url) return res.status(400).send("URL required");
 
   try {
-    // PASO 1: Descarga la página del proveedor
-    const page = await axios.get(url as string, { headers: DEFAULT_HEADERS });
-    let html = page.data;
+    let currentUrl = url as string;
+    let html = "";
 
-    // PASO 2: Desofusca scripts escondidos
-    html = resolvePacked(html);
-    
-    // Extraer m3u8 si es un embed
-    let m3u8Url = url as string;
-    if (!m3u8Url.endsWith(".m3u8")) {
-      const m3u8Match = html.match(/["'](http[^"']+\.m3u8[^"']*)["']/i);
-      if (m3u8Match) m3u8Url = m3u8Match[1];
+    // PASO 1 & 2: Descarga y Desofuscación
+    if (!currentUrl.includes(".m3u8")) {
+      const page = await axios.get(currentUrl, { headers: DEFAULT_HEADERS });
+      html = resolvePacked(page.data);
+      
+      // Búsqueda agresiva de m3u8
+      const m3u8Match = html.match(/["'](http[^"']+\.m3u8[^"']*)["']/i) || 
+                        page.data.match(/["'](http[^"']+\.m3u8[^"']*)["']/i);
+      
+      if (!m3u8Match) {
+        throw new Error("No se pudo extraer la fuente m3u8 del embed.");
+      }
+      currentUrl = m3u8Match[1].replace(/\\/g, ""); // Limpiar escapes de JS
     }
 
     // Obtener Master Playlist
-    const master = await axios.get(m3u8Url, { headers: DEFAULT_HEADERS });
-    
-    // PASO 3: Elige la mejor calidad <= 6 Mbps
-    let finalUrl = selectBestQuality(master.data, m3u8Url);
-    if (!finalUrl) finalUrl = m3u8Url;
+    const masterResponse = await axios.get(currentUrl, { headers: DEFAULT_HEADERS });
+    const masterData = masterResponse.data;
 
-    // Obtener Playlist de Calidad
-    const qualityPlaylist = await axios.get(finalUrl, { headers: DEFAULT_HEADERS });
-    
-    // PASO 4: Quita ads del playlist
-    const cleanPlaylist = filterAds(qualityPlaylist.data);
+    // PASO 3: Selección de Calidad
+    let qualityUrl = selectBestQuality(masterData, currentUrl);
+    if (!qualityUrl || qualityUrl === masterData) {
+      qualityUrl = currentUrl;
+    }
 
-    // PASO 5: Proxy para servir el flujo "en vivo" dinámico
-    // Reescribimos fragmentos para que pasen por /api/proxy
-    const baseUrl = finalUrl.substring(0, finalUrl.lastIndexOf("/") + 1);
+    // Obtener Playlist Final
+    const qualityResponse = await axios.get(qualityUrl, { headers: DEFAULT_HEADERS });
+    let qualityData = qualityResponse.data;
+
+    if (typeof qualityData !== "string") {
+      throw new Error("La fuente resuelta no es un manifiesto válido.");
+    }
+
+    // PASO 4: Filtrado de Anuncios
+    const cleanPlaylist = filterAds(qualityData);
+
+    // PASO 5: Proxy de fragmentos
+    const baseUrl = qualityUrl.substring(0, qualityUrl.lastIndexOf("/") + 1);
     const rewritten = cleanPlaylist.split("\n").map(line => {
       if (line && !line.startsWith("#")) {
         const abs = line.startsWith("http") ? line : new URL(line, baseUrl).href;
@@ -196,9 +207,11 @@ app.get("/api/m3u8", async (req, res) => {
     }).join("\n");
 
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.send(rewritten);
   } catch (err) {
-    res.status(500).send((err as Error).message);
+    console.error("Error en MovieProxy:", (err as Error).message);
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
