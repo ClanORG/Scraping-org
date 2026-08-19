@@ -1,0 +1,6 @@
+{
+  "name": "Nexus Streaming Engine",
+  "description": "Plataforma de streaming de alto rendimiento con proxy multimedia, desofuscación de fuentes y limpieza de listas HLS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
