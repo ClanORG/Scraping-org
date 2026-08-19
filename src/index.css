@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --border: #262b3a;
+  --text: #e8eaf0;
+  --muted: #9aa3b5;
+  --accent: #6c5ce7;
+  --accent2: #00d4a0;
+  --danger: #ff5f6d;
+}
+
+body {
+  background: radial-gradient(1200px 600px at 80% -10%, #1c2140 0%, var(--bg) 60%);
+  background-color: var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+.tech-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(rgba(38, 43, 58, .28) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(38, 43, 58, .28) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+}
