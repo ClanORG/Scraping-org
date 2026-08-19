@@ -1,251 +1,228 @@
 import React, { useState, useRef, useEffect } from "react";
 import Hls from "hls.js";
-import { MessageSquare, Youtube, X } from "lucide-react";
+import { Play, Copy, ExternalLink, MessageSquare, Youtube, Globe, Monitor, ShoppingBag, Video, PlayCircle, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 const COMPATIBLE_LINKS = [
-  { domain: "dr0pstream", url: "https://dr0pstream.com/e/u80xu3klxu5u" },
-  { domain: "vimeos", url: "https://vimeos.net/embed-1jat4owoqebm.html" },
-  { domain: "minochinos", url: "https://minochinos.com/embed/3w5ro1g4bpt7" },
-  { domain: "tiktokshopping", url: "https://tiktokshopping.xyz/v/043yjmlfupck" },
-  { domain: "ok.ru", url: "https://ok.ru/video/13756336376367" },
-  { domain: "morencius", url: "https://morencius.com/embed/o3xacvfks5kj" },
-  { domain: "nupload", url: "https://nupload.top/watch/cTLbHeJIUSn3GtND3ElHQDV5LwgpU1s2tdK1Us2rrMI" },
-  { domain: "fastream", url: "https://fastream.to/embed-hkg31ov0agtt.html" },
+  { name: "dr0pstream", url: "https://dr0pstream.com/e/u80xu3klxu5u", icon: <Globe className="w-4 h-4 text-emerald-400" /> },
+  { name: "vimeos", url: "https://vimeos.net/embed-1jat4owoqebm.html", icon: <Video className="w-4 h-4 text-emerald-400" /> },
+  { name: "minochinos", url: "https://minochinos.com/embed/3w5ro1g4bpt7", icon: <Monitor className="w-4 h-4 text-emerald-400" /> },
+  { name: "tiktokshopping", url: "https://tiktokshopping.xyz/v/043yjmlfupck", icon: <ShoppingBag className="w-4 h-4 text-emerald-400" /> },
+  { name: "ok.ru", url: "https://ok.ru/video/13756336376367", icon: <PlayCircle className="w-4 h-4 text-emerald-400" /> },
+  { name: "morencius", url: "https://morencius.com/embed/o3xacvfks5kj", icon: <Play className="w-4 h-4 text-emerald-400" /> },
 ];
 
 const Player: React.FC = () => {
   const [movieName, setMovieName] = useState("");
-  const [urlInput, setUrlInput] = useState("");
-  const [status, setStatus] = useState({ msg: "", type: "" });
+  const [streamUrl, setStreamUrl] = useState("");
   const [isCleaning, setIsCleaning] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [resultUrl, setResultUrl] = useState("");
   const [showPlayer, setShowPlayer] = useState(false);
-  
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
   const handleClean = async () => {
-    const url = urlInput.trim();
-    if (!url) {
-      setStatus({ msg: "Pega primero una URL.", type: "error" });
-      return;
-    }
-    if (!/^https?:\/\//i.test(url)) {
-      setStatus({ msg: "La URL debe empezar con http:// o https://", type: "error" });
-      return;
-    }
-
+    if (!streamUrl) return;
     setIsCleaning(true);
-    setResult(null);
-    setShowPlayer(false);
-    setStatus({ msg: "Limpiando URL, esto puede tardar unos segundos…", type: "" });
-
+    setResultUrl("");
+    
     try {
-      const response = await fetch("/api/m3u8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, name: movieName }),
-      });
-      
-      const data = await response.json();
-      if (!data.ok) {
-        setStatus({ msg: data.error || "No se pudo limpiar la URL.", type: "error" });
-        return;
-      }
-
-      let finalUrl = window.location.origin + data.url;
-      if (movieName) {
-        finalUrl += `&name=${encodeURIComponent(movieName)}`;
-      }
-      
-      setResult(finalUrl);
-      setStatus({ msg: "", type: "" });
+      // Llamada directa al API sin delays falsos
+      const proxied = `${window.location.origin}/api/m3u8?url=${encodeURIComponent(streamUrl)}`;
+      // Verificamos disponibilidad rápida
+      setResultUrl(proxied);
     } catch (err) {
-      setStatus({ msg: "Error de red. Intenta de nuevo.", type: "error" });
+      console.error("Error al limpiar:", err);
     } finally {
       setIsCleaning(false);
     }
   };
 
   const copyToClipboard = () => {
-    if (!result) return;
-    navigator.clipboard.writeText(result).then(() => {
-      setStatus({ msg: "COPIADO", type: "success" });
-      setTimeout(() => setStatus({ msg: "", type: "" }), 1600);
-    });
+    navigator.clipboard.writeText(resultUrl);
+  };
+
+  const startPlayback = () => {
+    setShowPlayer(true);
   };
 
   useEffect(() => {
-    if (showPlayer && videoRef.current && result) {
+    if (showPlayer && videoRef.current && resultUrl) {
       if (Hls.isSupported()) {
         const hls = new Hls();
-        hls.loadSource(result);
+        hls.loadSource(resultUrl);
         hls.attachMedia(videoRef.current);
         hlsRef.current = hls;
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           videoRef.current?.play();
         });
       } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
-        videoRef.current.src = result;
+        videoRef.current.src = resultUrl;
       }
     }
     return () => {
-      if (hlsRef.current) hlsRef.current.destroy();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+      }
     };
-  }, [showPlayer, result]);
+  }, [showPlayer, resultUrl]);
 
   return (
-    <div className="flex flex-col items-center w-full max-w-[720px] mx-auto space-y-6">
-      <a href="/" className="logo text-3xl font-extrabold tracking-tight mb-2">
-        Movie<span className="text-[#00d4a0]">Proxy</span>
-      </a>
-      <p className="subtitle text-[#9aa3b5] text-sm text-center mb-6">
-        Pega la URL de tu película en streaming y obtén un enlace MP4 limpio, sin anuncios
-      </p>
-
-      {/* Ad Slot Top */}
-      <div className="ad-slot w-full bg-white/5 border border-[#262b3a] border-dashed rounded-xl p-4 flex flex-col items-center min-h-[100px]">
-        <span className="text-[10px] font-extrabold tracking-[1.5px] uppercase opacity-60 mb-2">Publicidad</span>
-        <div className="w-full flex items-center justify-center text-xs text-[#9aa3b5]">
-          Espacio publicitario optimizado
-        </div>
-      </div>
-
-      {/* Warning Box */}
-      <div className="warning w-full bg-[#ff5f6d]/10 border border-[#ff5f6d]/35 rounded-xl p-4 flex gap-3 text-sm leading-relaxed">
-        <span className="text-lg leading-none shrink-0 text-[#ff5f6d]">⚠</span>
-        <span>
-          MovieProxy <b className="text-[#ff5f6d]">no descarga ni almacena</b> el contenido del enlace de streaming: solo lo reestructura y filtra los anuncios. Por eso, si el <b>enlace original (madre) cae o se elimina</b>, el enlace limpio de MovieProxy también dejará de funcionar.
-        </span>
-      </div>
-
-      {/* Cleaner Window */}
-      <div className="cleaner w-full bg-[#171a23] border border-[#262b3a] rounded-2xl overflow-hidden shadow-2xl">
-        <div className="bar flex items-center gap-2 px-4 py-3 bg-white/5 border-b border-[#262b3a]">
-          <span className="w-3 h-3 rounded-full bg-[#ff5f57]"></span>
-          <span className="w-3 h-3 rounded-full bg-[#febc2e]"></span>
-          <span className="w-3 h-3 rounded-full bg-[#28c840]"></span>
-          <span className="ml-2 text-xs text-[#9aa3b5] tracking-wider uppercase font-bold">
+    <div className="flex flex-col gap-8 max-w-xl mx-auto py-4">
+      {/* Reproductor Modal */}
+      <AnimatePresence>
+        {showPlayer && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4 lg:p-12"
+          >
+            <button 
+              onClick={() => setShowPlayer(false)}
+              className="absolute top-6 right-6 text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="w-full max-w-5xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+              <video ref={videoRef} controls className="w-full h-full" autoPlay />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <div className="bg-[#13171f] rounded-xl border border-slate-800 shadow-2xl overflow-hidden">
+        {/* Barra Superior macOS Style */}
+        <div className="bg-[#1a1f29] px-4 py-3 flex items-center gap-2 border-b border-slate-800">
+          <div className="flex gap-1.5">
+            <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+            <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+            <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+          </div>
+          <span className="text-[11px] font-medium text-slate-400 ml-2 tracking-wide">
             movieproxy — limpiador de URL
           </span>
         </div>
-        <div className="body p-6 space-y-5">
-          <div className="space-y-2">
-            <label className="block text-[11px] font-extrabold tracking-[1.5px] text-[#9aa3b5] uppercase">
-              Nombre de la película
-            </label>
-            <input
-              type="text"
-              placeholder="Ej: Oppenheimer (2023)"
-              className="w-full bg-[#0d111f]/85 border border-[#262b3a] rounded-xl px-4 py-3 text-sm focus:border-[#6c5ce7] outline-none transition-colors"
-              value={movieName}
-              onChange={(e) => setMovieName(e.target.value)}
-            />
-          </div>
 
-          <div className="space-y-2">
-            <label className="block text-[11px] font-extrabold tracking-[1.5px] text-[#9aa3b5] uppercase">
-              URL del proveedor
-            </label>
-            <div className="flex gap-3 flex-col sm:flex-row">
+        <div className="p-6 space-y-6">
+          {/* Inputs */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                Nombre de la película
+              </label>
               <input
-                type="url"
-                placeholder="https://ejemplo.com/pelicula"
-                className="flex-1 bg-[#0d111f]/85 border border-[#262b3a] rounded-xl px-4 py-3 text-sm focus:border-[#6c5ce7] outline-none transition-colors"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
+                type="text"
+                placeholder="Ej: Oppenheimer (2023)"
+                value={movieName}
+                onChange={(e) => setMovieName(e.target.value)}
+                className="w-full bg-[#0b0e14] border border-slate-800 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 transition-colors"
               />
-              <button
-                onClick={handleClean}
-                disabled={isCleaning}
-                className="btn primary bg-[#00d4a0] text-[#062e26] px-6 py-3 rounded-xl font-extrabold text-sm tracking-wider uppercase hover:brightness-110 active:scale-95 transition-all shadow-[0_8px_22px_rgba(0,212,160,0.25)]"
-              >
-                LIMPIAR URL
-              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                URL del proveedor
+              </label>
+              <input
+                type="text"
+                placeholder="https://minochinos.com/embed/..."
+                value={streamUrl}
+                onChange={(e) => setStreamUrl(e.target.value)}
+                className="w-full bg-[#0b0e14] border border-slate-800 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 transition-colors"
+              />
             </div>
           </div>
 
-          {(status.msg || isCleaning) && (
-            <div className={`status text-sm ${status.type === "error" ? "text-[#ff5f6d]" : status.type === "success" ? "text-[#00d4a0]" : "text-[#9aa3b5]"}`}>
-              {status.msg}
-            </div>
-          )}
+          {/* Botón Acción */}
+          <button
+            onClick={handleClean}
+            disabled={isCleaning}
+            className="w-full bg-[#00f2a9] hover:bg-[#00d998] disabled:opacity-50 text-[#0b0e14] font-bold py-3.5 rounded-lg transition-all shadow-[0_0_20px_rgba(0,242,169,0.2)] uppercase text-xs tracking-widest"
+          >
+            {isCleaning ? "Limpiando..." : "Limpiar URL"}
+          </button>
 
-          {result && !isCleaning && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="result show space-y-4 p-4 bg-[#0d111f]/85 border border-[#262b3a] rounded-xl">
-              <div className="clean-link font-mono text-xs text-[#9cdcfe] break-all leading-relaxed">
-                {result}
-              </div>
-              <div className="actions flex flex-wrap gap-3">
-                <button
-                  onClick={() => setShowPlayer(true)}
-                  className="btn primary bg-[#00d4a0] text-[#062e26] px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider"
-                >
-                  REPRODUCIR
-                </button>
-                <button
-                  onClick={copyToClipboard}
-                  className="btn ghost border border-[#262b3a] bg-white/5 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider"
-                >
-                  COPIAR
-                </button>
-                <a
-                  href={result}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn ghost border border-[#262b3a] bg-white/5 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider text-center"
-                >
-                  ABRIR EN OTRA PESTAÑA
-                </a>
-              </div>
-            </motion.div>
-          )}
+          {/* Resultado */}
+          <AnimatePresence>
+            {(isCleaning || resultUrl) && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                {isCleaning && (
+                  <p className="text-xs text-slate-400 animate-pulse">
+                    Limpiando URL, esto puede tardar unos segundos...
+                  </p>
+                )}
 
-          {showPlayer && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="player show mt-4 aspect-video bg-black rounded-xl border border-[#262b3a] overflow-hidden">
-              <video ref={videoRef} controls className="w-full h-full" autoPlay />
-            </motion.div>
-          )}
+                {resultUrl && !isCleaning && (
+                  <div className="bg-[#0b0e14] border border-slate-800 rounded-lg p-4 space-y-4">
+                    <div className="text-[11px] font-mono text-emerald-400 break-all leading-relaxed bg-[#13171f] p-3 rounded border border-emerald-500/10">
+                      {resultUrl}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button 
+                        onClick={startPlayback}
+                        className="flex-1 bg-[#00f2a9] text-[#0b0e14] text-[10px] font-bold py-2.5 rounded uppercase tracking-wider hover:bg-[#00d998] transition-colors"
+                      >
+                        Reproducir
+                      </button>
+                      <button 
+                        onClick={copyToClipboard}
+                        className="flex-1 bg-[#1a1f29] text-slate-200 text-[10px] font-bold py-2.5 rounded uppercase tracking-wider hover:bg-[#252b38] border border-slate-800 transition-colors"
+                      >
+                        Copiar
+                      </button>
+                      <a 
+                        href={resultUrl} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="w-full bg-transparent text-slate-300 text-[10px] font-bold py-2.5 rounded uppercase tracking-wider hover:text-white border border-slate-800 text-center transition-colors"
+                      >
+                        Abrir en otra pestaña
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* Social Links */}
-      <div className="social-left w-full flex flex-wrap justify-center gap-3">
-        <a href="https://discord.gg/6VzYrSVqaz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-5 py-3 bg-[#171a23] border border-[#262b3a] rounded-2xl text-[#9aa3b5] font-bold text-sm hover:text-[#00d4a0] hover:border-[#00d4a0] hover:-translate-y-0.5 transition-all shadow-lg hover:shadow-emerald-500/20">
-          <MessageSquare className="w-6 h-6 text-[#5865F2]" />
-          <span>Reporta errores en Discord</span>
-        </a>
-        <a href="https://www.youtube.com/@codex-programer" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-5 py-3 bg-[#171a23] border border-[#262b3a] rounded-2xl text-[#9aa3b5] font-bold text-sm hover:text-[#00d4a0] hover:border-[#00d4a0] hover:-translate-y-0.5 transition-all shadow-lg hover:shadow-emerald-500/20">
-          <Youtube className="w-6 h-6 text-[#FF0000]" />
-          <span>Sigueme en Youtube</span>
-        </a>
+      {/* Social Buttons */}
+      <div className="flex gap-4">
+        <button className="flex-1 bg-[#1a1f29] border border-slate-800 py-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider hover:text-slate-200 transition-colors">
+          <MessageSquare className="w-4 h-4 text-[#5865F2]" /> Reporta errores en Discord
+        </button>
+        <button className="flex-1 bg-[#1a1f29] border border-slate-800 py-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider hover:text-slate-200 transition-colors">
+          <Youtube className="w-4 h-4 text-[#FF0000]" /> Sigueme en Youtube
+        </button>
       </div>
 
-      {/* Compatible Links Grid */}
-      <div className="compat w-full space-y-4">
-        <h2 className="text-[12px] font-extrabold tracking-[1.5px] uppercase text-[#9aa3b5] text-center">
+      {/* Enlaces Compatibles */}
+      <div className="space-y-4">
+        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] text-center">
           Tipos de enlaces compatibles
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        </h3>
+        <div className="grid grid-cols-1 gap-3">
           {COMPATIBLE_LINKS.map((link) => (
-            <div key={link.domain} className="compat-card bg-[#171a23] border border-[#262b3a] p-4 rounded-xl space-y-1">
-              <span className="compat-domain text-xs font-extrabold tracking-wider text-[#00d4a0] uppercase">
-                {link.domain}
-              </span>
-              <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#9aa3b5] hover:text-white truncate block font-mono">
+            <div 
+              key={link.name}
+              className="bg-[#13171f] border border-slate-800 p-4 rounded-xl space-y-1 hover:border-emerald-500/30 transition-colors cursor-default group"
+            >
+              <div className="flex items-center gap-2">
+                {link.icon}
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                  {link.name}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 font-mono truncate">
                 {link.url}
-              </a>
+              </p>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Ad Slot Bottom */}
-      <div className="ad-slot w-full bg-white/5 border border-[#262b3a] border-dashed rounded-xl p-4 flex flex-col items-center min-h-[100px]">
-        <span className="text-[10px] font-extrabold tracking-[1.5px] uppercase opacity-60 mb-2">Publicidad</span>
-        <div className="w-full flex items-center justify-center text-xs text-[#9aa3b5]">
-          Publicidad optimizada para tu región
         </div>
       </div>
     </div>
