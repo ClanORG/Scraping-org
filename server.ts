@@ -70,15 +70,36 @@ app.get("/api/m3u8", async (req, res) => {
   if (!url) return res.status(400).send("URL is required");
 
   try {
-    const targetUrl = new URL(url as string);
-    const response = await axios.get(targetUrl.href, {
+    let targetUrl = url as string;
+    
+    // RESOLVER: Si no termina en .m3u8, intentamos buscarlo dentro del HTML
+    if (!targetUrl.includes(".m3u8")) {
+      console.log("Detectado Embed URL, resolviendo fuente...");
+      const pageResponse = await axios.get(targetUrl, {
+        headers: { ...DEFAULT_HEADERS, ...(referer ? { Referer: referer as string } : {}) },
+      });
+      
+      const html = pageResponse.data;
+      // Regex para buscar archivos m3u8 en scripts (común en JWPlayer y similares)
+      const m3u8Match = html.match(/["'](http[^"']+\.m3u8[^"']*)["']/i) || 
+                        html.match(/file\s*:\s*["']([^"']+)["']/i);
+      
+      if (m3u8Match) {
+        targetUrl = m3u8Match[1];
+        console.log("Fuente resuelta:", targetUrl);
+      } else {
+        return res.status(404).send("No se encontró un flujo M3U8 válido en esta página.");
+      }
+    }
+
+    const response = await axios.get(targetUrl, {
       headers: { ...DEFAULT_HEADERS, ...(referer ? { Referer: referer as string } : {}) },
     });
 
     let content = response.data;
     const lines = content.split("\n");
     const newLines = [];
-    const baseUrl = targetUrl.href.substring(0, targetUrl.href.lastIndexOf("/") + 1);
+    const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
 
     let isAdSegment = false;
 
